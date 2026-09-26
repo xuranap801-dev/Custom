@@ -5,6 +5,7 @@ from copy import deepcopy
 from collections import defaultdict
 
 import aiohttp
+from aiohttp import web
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.types import (
     Message, CallbackQuery,
@@ -19,6 +20,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.exceptions import TelegramBadRequest
+from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 
 logging.basicConfig(
     level=logging.INFO,
@@ -4044,39 +4046,87 @@ async def noop(cq: CallbackQuery):
 # MAIN
 # ============================================================
 
-async def main():
-    # Ensure SQLite schema exists and migrate legacy JSON before accepting updates.
-    load()
+WEBHOOK_PATH = "/telegram/webhook"
+
+
+async def health_check(request: web.Request) -> web.Response:
+    """Public health endpoint for Render; does not expose bot state."""
+    return web.Response(text="ok", status=200)
+
+
+def _validate_webhook_config() -> tuple[str, str, int]:
+    base_url = os.getenv("RENDER_EXTERNAL_URL", "").strip().rstrip("/")
+    secret = os.getenv("WEBHOOK_SECRET", "").strip()
     if not BOT_TOKEN:
-        raise RuntimeError("BOT_TOKEN environment variable is required. Set it before starting the bot.")
+        raise RuntimeError("BOT_TOKEN environment variable is required.")
+    if not base_url.startswith("https://"):
+        raise RuntimeError("RENDER_EXTERNAL_URL must be set to this Render Web Service HTTPS URL.")
+    if not secret or len(secret) > 256 or any(c not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-" for c in secret):
+        raise RuntimeError("Set WEBHOOK_SECRET to a random 1-256 character value using only letters, digits, _ or -.")
+    return base_url, secret, _env_int("PORT", 10000)
+
+
+def main():
+    # Ensure SQLite schema exists and migrate the legacy JSON before accepting updates.
+    load()
+    base_url, webhook_secret, port = _validate_webhook_config()
     bot = QuotedBot(token=BOT_TOKEN)
     dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(R)
-    me = await bot.get_me()
-    log.info(f"@{me.username} — SMS Blast Bot {_VERSION} started!")
+    scanner_task = None
 
-    scanner_task = asyncio.create_task(background_firebase_scanner(bot))
-    log.info("Background scanner task created")
-
-    try:
-        await bot.send_message(
-            MAIN_OWNER,
-            f"{em(EMOJI_ROCKET, '🚀')} <b>SMS Blast Bot {_VERSION} Online!</b>\n@{me.username}\n"
-            f"<code>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</code>\n\n"
-            f"{em(EMOJI_GEAR, '🔄')} <b>Background Scanner:</b> Starting...\n"
-            f"{em(EMOJI_STAR, '👥')} <b>Per-User Sessions:</b> ENABLED\n"
-            f"{em(EMOJI_ROCKET, '🚀')} <b>Concurrent Users:</b> 1000+\n"
-            f"{em(EMOJI_LOCK, '🔒')} <b>Number Protection:</b> ENABLED\n"
-            f"{em(EMOJI_VIDEO, '📹')} <b>Videos/Images:</b> ENABLED\n"
-            f"{em(EMOJI_MONEY, '💸')} <b>Credit Transfer:</b> ENABLED\n"
-            f"👤 <b>Bot Owner:</b> {OWNER_NAME}",
-            parse_mode="HTML"
+    async def on_startup(bot: Bot):
+        nonlocal scanner_task
+        webhook_url = f"{base_url}{WEBHOOK_PATH}"
+        await bot.set_webhook(
+            url=webhook_url,
+            secret_token=webhook_secret,
+            allowed_updates=dp.resolve_used_update_types(),
+            drop_pending_updates=False,
         )
-    except Exception as e:
-        log.warning(f"Owner notify: {e}")
+        me = await bot.get_me()
+        log.info("@%s — SMS Blast Bot %s started in webhook mode at %s", me.username, _VERSION, webhook_url)
+        scanner_task = asyncio.create_task(background_firebase_scanner(bot))
+        log.info("Background scanner task created")
+        try:
+            await bot.send_message(
+                MAIN_OWNER,
+                f"{em(EMOJI_ROCKET, '🚀')} <b>SMS Blast Bot {_VERSION} Online!</b>\n@{me.username}\n"
+                f"<code>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</code>\n\n"
+                f"{em(EMOJI_GEAR, '🔄')} <b>Background Scanner:</b> Starting...\n"
+                f"{em(EMOJI_STAR, '👥')} <b>Per-User Sessions:</b> ENABLED\n"
+                f"{em(EMOJI_ROCKET, '🚀')} <b>Concurrent Users:</b> 1000+\n"
+                f"{em(EMOJI_LOCK, '🔒')} <b>Number Protection:</b> ENABLED\n"
+                f"{em(EMOJI_VIDEO, '📹')} <b>Videos/Images:</b> ENABLED\n"
+                f"{em(EMOJI_MONEY, '💸')} <b>Credit Transfer:</b> ENABLED\n"
+                f"👤 <b>Bot Owner:</b> {OWNER_NAME}",
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            log.warning("Owner notify: %s", e)
 
-    await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+    async def on_shutdown(bot: Bot):
+        nonlocal scanner_task
+        if scanner_task and not scanner_task.done():
+            scanner_task.cancel()
+            await asyncio.gather(scanner_task, return_exceptions=True)
+        log.info("Webhook service shutting down")
+
+    dp.startup.register(on_startup)
+    dp.shutdown.register(on_shutdown)
+
+    app = web.Application()
+    app.router.add_get("/", health_check)
+    SimpleRequestHandler(
+        dispatcher=dp,
+        bot=bot,
+        secret_token=webhook_secret,
+        handle_in_background=True,
+    ).register(app, path=WEBHOOK_PATH)
+    setup_application(app, dp, bot=bot)
+    log.info("Binding aiohttp web server to 0.0.0.0:%s", port)
+    web.run_app(app, host="0.0.0.0", port=port)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
