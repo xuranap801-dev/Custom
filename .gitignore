@@ -1,0 +1,7 @@
+.env
+__pycache__/
+*.py[cod]
+blast_data.json
+blast_data.sqlite3
+blast_data.sqlite3-shm
+blast_data.sqlite3-wal
