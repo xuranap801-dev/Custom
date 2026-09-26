@@ -185,10 +185,8 @@ def _env_int(name: str, default: int = 0) -> int:
 
 
 MAIN_OWNER = _env_int("MAIN_OWNER_ID", 8790645158)
-SUPER_ADMIN_NAME = os.getenv("SUPER_ADMIN_NAME", "⏤𝐄ʀᴇɴ 〤 𝐄ᴍᴘɪʀᴇ !! 𓆩🪽𓆪")
-ADMIN_DISPLAY_NAME = os.getenv("ADMIN_DISPLAY_NAME", "⏤͟͞𝐈ᴍᴍᴏʀᴛᴀʟ 〤 𝐄ʀᴀ !!")
-SUPER_ADMIN_LINK = os.getenv("SUPER_ADMIN_LINK", "")
-SUPER_ADMINS = [_env_int("SUPER_ADMIN_ID", 8137776838)]
+OWNER_NAME = os.getenv("OWNER_NAME", "Owner")
+OWNER_LINK = os.getenv("OWNER_LINK", "")
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "Erenxsmsbot")
@@ -369,8 +367,9 @@ def _normalize_data(data: dict) -> dict:
     for k, v in default.items():
         if k not in data:
             data[k] = deepcopy(v)
-    if MAIN_OWNER not in data.get("owners", []):
-        data["owners"].insert(0, MAIN_OWNER)
+    # Single-owner mode: discard legacy extra owners/admins on every load.
+    data["owners"] = [MAIN_OWNER]
+    data["admins"] = []
     # Migrate the old built-in referral reward to the new 5-credit rule.
     if data.get("settings", {}).get("ref_credits") == 3:
         data["settings"]["ref_credits"] = 5
@@ -475,11 +474,12 @@ def is_main_owner(uid: int) -> bool:
 
 
 def is_owner(uid: int, d: dict) -> bool:
-    return uid in d.get("owners", [MAIN_OWNER]) or uid in SUPER_ADMINS
+    return uid == MAIN_OWNER
 
 
 def is_admin(uid: int, d: dict) -> bool:
-    return is_owner(uid, d) or uid in d.get("admins", [])
+    # Admin-only legacy handlers remain reachable by the owner, never by a separate admin.
+    return is_owner(uid, d)
 
 
 def is_banned(uid: int, d: dict) -> bool:
@@ -499,9 +499,7 @@ def can_use(uid: int, d: dict) -> bool:
 
 
 def role_tag(uid: int, d: dict) -> str:
-    if is_main_owner(uid): return f"{em(EMOJI_CROWN, '👑')} ᴍᴀɪɴ ᴏᴡɴᴇʀ"
-    if is_owner(uid, d): return f"{em(EMOJI_CROWN, '🔱')} ᴏᴡɴᴇʀ"
-    if uid in d.get("admins", []): return f"{em(EMOJI_SHIELD, '🛡')} ᴀᴅᴍɪɴ"
+    if is_owner(uid, d): return f"{em(EMOJI_CROWN, '👑')} ᴏᴡɴᴇʀ"
     if uid in d.get("approved", []): return f"{em(EMOJI_CHECK, '✅')} ᴀᴘᴘʀᴏᴠᴇᴅ"
     if d.get("free_mode"): return f"{em(EMOJI_GIFT, '🆓')} ғʀᴇᴇ ᴜsᴇʀ"
     return f"{em(EMOJI_CROSS, '❌')} ɴᴏ ᴀᴄᴄᴇss"
@@ -951,8 +949,6 @@ def fmt_duration(seconds: int) -> str:
 
 def owner_panel_text(d: dict) -> str:
     fbs = d.get("firebases", [])
-    owners = d.get("owners", [])
-    admins = d.get("admins", [])
     users = d.get("users", {})
     stats = d.get("stats", {})
     videos = d.get("videos", [])
@@ -971,11 +967,10 @@ def owner_panel_text(d: dict) -> str:
     return (
         f"{DIVIDER}\n"
         f"{em(EMOJI_CROWN, '👑')} <b>{sc('owner panel')}</b> — sᴍs ʙʟᴀsᴛ ʙᴏᴛ {_VERSION}\n"
-        f"<b>Owner:</b> {SUPER_ADMIN_NAME}\n\n"
+        f"<b>Owner:</b> {OWNER_NAME}\n\n"
         f"{DIVIDER}\n"
         f"{em(EMOJI_FIRE, '🔥')} ғɪʀᴇʙᴀsᴇ ᴅʙs  : <b>{len(fbs)}</b>\n"
-        f"{em(EMOJI_CROWN, '👑')} sᴜᴘᴇʀ ᴀᴅᴍɪɴs  : <b>{len(owners)}</b>/6\n"
-        f"{em(EMOJI_SHIELD, '🛡')} ᴀᴅᴍɪɴs        : <b>{len(admins)}</b>\n"
+        f"{em(EMOJI_CROWN, '👑')} ᴏᴡɴᴇʀs        : <b>1</b>\n"
         f"{em(EMOJI_STAR, '👥')} ᴛᴏᴛᴀʟ ᴜsᴇʀs   : <b>{len(users)}</b>\n"
         f"{em(EMOJI_VIDEO, '📹')} ᴠɪᴅᴇᴏs        : <b>{len(videos)}</b>\n"
         f"{em(EMOJI_STAR, '🖼')} ɪᴍᴀɢᴇs        : <b>{len(d.get('images', []))}</b>\n"
@@ -1010,7 +1005,7 @@ def admin_panel_text(d: dict) -> str:
     return (
         f"{DIVIDER}\n"
         f"{em(EMOJI_SHIELD, '🛡')} <b>{sc('admin panel')}</b> — sᴍs ʙʟᴀsᴛ ʙᴏᴛ {_VERSION}\n"
-        f"<b>Admin:</b> {ADMIN_DISPLAY_NAME}\n\n"
+        f"<b>Owner:</b> {OWNER_NAME}\n\n"
         f"{DIVIDER}\n"
         f"{em(EMOJI_STAR, '👥')} ᴛᴏᴛᴀʟ ᴜsᴇʀs   : <b>{len(users)}</b>\n"
         f"{em(EMOJI_VIDEO, '📹')} ᴠɪᴅᴇᴏs        : <b>{len(videos)}</b>\n"
@@ -1035,7 +1030,7 @@ def user_home_text(uid: int, d: dict) -> str:
     return (
         f"{DIVIDER}\n"
         f"{em(EMOJI_PHONE, '📱')} <b>sᴍs ʙʟᴀsᴛ ʙᴏᴛ {_VERSION}</b>\n"
-        f"<b>Owner:</b> {SUPER_ADMIN_NAME}\n\n"
+        f"<b>Owner:</b> {OWNER_NAME}\n\n"
         f"{em(EMOJI_STAR, '👤')} ʀᴏʟᴇ    : {role_tag(uid, d)}\n"
         f"{em(EMOJI_MONEY, '💰')} ᴄʀᴇᴅɪᴛs : <b>{credits}</b>\n"
         f"{em(EMOJI_STAR, '🔢')} ᴜsᴇs    : <b>{udata.get('uses', 0)}</b>\n"
@@ -1085,8 +1080,6 @@ def owner_kb(d: dict) -> InlineKeyboardMarkup:
         [btn("sᴇɴᴅ sᴍs", "owner:send", EMOJI_ROCKET, "📤", style="success"),
          btn("ᴍᴀɴᴀɢᴇ ғɪʀᴇʙᴀsᴇ", "owner:fb:menu", EMOJI_FIRE, "🔥", style="primary")],
         [btn("ᴅᴀsʜʙᴏᴀʀᴅ ᴍᴇᴅɪᴀ", "owner:videos:menu", EMOJI_VIDEO, "🖼", style="primary"),
-         btn("ᴍᴀɴᴀɢᴇ sᴜᴘᴇʀ ᴀᴅᴍɪɴs", "owner:owners:menu", EMOJI_CROWN, "👑", style="success")],
-        [btn("ᴍᴀɴᴀɢᴇ ᴀᴅᴍɪɴs", "owner:admins:menu", EMOJI_SHIELD, "🛡", style="primary"),
          btn("ᴠɪᴇᴡ ᴜsᴇʀs", "owner:users:list", EMOJI_STAR, "👥", style="success")],
         [btn("ʙᴀɴ ᴜsᴇʀ", "owner:ban", EMOJI_CROSS, "🚫", style="danger"),
          btn("ᴜɴʙᴀɴ ᴜsᴇʀ", "owner:unban:menu", EMOJI_CHECK, "✅", style="success")],
@@ -1175,28 +1168,17 @@ def fb_menu_kb(d: dict) -> InlineKeyboardMarkup:
 
 
 def owners_menu_kb(d: dict) -> InlineKeyboardMarkup:
-    owners = d.get("owners", [])
-    rows = []
-    if len(owners) < 6:
-        rows.append([btn("ᴀᴅᴅ sᴜᴘᴇʀ ᴀᴅᴍɪɴ", "owner:owners:add", EMOJI_CHECK, "➕", style="success")])
-    for oid in owners:
-        if oid == MAIN_OWNER:
-            rows.append([btn(f"{oid} (ᴍᴀɪɴ)", "noop", EMOJI_CROWN, "👑", style="success")])
-        else:
-            rows.append([btn(f"{oid}", "noop", EMOJI_CROWN, "🔱", style="primary"),
-                         btn("ʀᴇᴍᴏᴠᴇ", f"owner:owners:del:{oid}", EMOJI_CROSS, "🗑", style="danger")])
-    rows.append([btn("ʙᴀᴄᴋ", "owner:home", EMOJI_GEAR, "🔙", style="primary")])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [btn(f"{MAIN_OWNER} (ᴏᴡɴᴇʀ)", "noop", EMOJI_CROWN, "👑", style="success")],
+        [btn("ʙᴀᴄᴋ", "owner:home", EMOJI_GEAR, "🔙", style="primary")]
+    ])
 
 
 def admins_menu_kb(d: dict) -> InlineKeyboardMarkup:
-    admins = d.get("admins", [])
-    rows = [[btn("ᴀᴅᴅ ᴀᴅᴍɪɴ", "owner:admins:add", EMOJI_CHECK, "➕", style="success")]]
-    for aid in admins:
-        rows.append([btn(f"{aid}", "noop", EMOJI_SHIELD, "🛡", style="primary"),
-                     btn("ʀᴇᴍᴏᴠᴇ", f"owner:admins:del:{aid}", EMOJI_CROSS, "🗑", style="danger")])
-    rows.append([btn("ʙᴀᴄᴋ", "owner:home", EMOJI_GEAR, "🔙", style="primary")])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [btn("ɴᴏ ᴀᴅᴍɪɴs", "noop", EMOJI_SHIELD, "🛡", style="primary")],
+        [btn("ʙᴀᴄᴋ", "owner:home", EMOJI_GEAR, "🔙", style="primary")]
+    ])
 
 
 def unban_menu_kb(d: dict, prefix: str) -> InlineKeyboardMarkup:
@@ -1337,7 +1319,7 @@ async def cmd_start_deep(msg: Message, state: FSMContext):
         )
         return
 
-    await send_random_video(msg.bot, msg.chat.id, caption=f"{em(EMOJI_ROCKET, '🚀')} Welcome to SMS Blast Bot!\nOwner: {SUPER_ADMIN_NAME}")
+    await send_random_video(msg.bot, msg.chat.id, caption=f"{em(EMOJI_ROCKET, '🚀')} Welcome to SMS Blast Bot!\nOwner: {OWNER_NAME}")
     await msg.answer(
         f"{DIVIDER}\n🎉 <b>{sc("welcome")}</b>\n{DIVIDER}\n"
         f"👤 <b>Role:</b> {role_tag(uid, d)}\n"
@@ -1408,7 +1390,7 @@ async def cmd_start(msg: Message, state: FSMContext):
         )
         return
 
-    await send_random_video(msg.bot, msg.chat.id, caption=f"{em(EMOJI_ROCKET, '🚀')} Welcome to SMS Blast Bot!\nOwner: {SUPER_ADMIN_NAME}")
+    await send_random_video(msg.bot, msg.chat.id, caption=f"{em(EMOJI_ROCKET, '🚀')} Welcome to SMS Blast Bot!\nOwner: {OWNER_NAME}")
     await msg.answer(
         f"{DIVIDER}\n🎉 <b>{sc("welcome")}</b>\n{DIVIDER}\n"
         f"👤 <b>Role:</b> {role_tag(uid, d)}\n"
@@ -1568,7 +1550,7 @@ async def reply_buy_premium(msg: Message, state: FSMContext):
         f"{em(EMOJI_GEAR, '⚡')} Fast speed\n"
         f"{em(EMOJI_MONEY, '💰')} Bonus credits\n"
         f"{em(EMOJI_CHECK, '✅')} Priority support\n\n"
-        f"{em(EMOJI_CROWN, '👑')} Contact: {SUPER_ADMIN_LINK}",
+        f"{em(EMOJI_CROWN, '👑')} Contact: {OWNER_LINK}",
         reply_markup=default_reply_keyboard(uid, d),
         parse_mode="HTML",
         disable_web_page_preview=True
@@ -1599,8 +1581,8 @@ async def reply_support(msg: Message, state: FSMContext):
     uid = msg.from_user.id
     await msg.answer(
         f"{em(EMOJI_BELL, '🆘')} <b>sᴜᴘᴘᴏʀᴛ</b>\n\n"
-        f"{em(EMOJI_CROWN, '👑')} Owner: {SUPER_ADMIN_LINK}\n"
-        f"{em(EMOJI_STAR, '👤')} {SUPER_ADMIN_NAME}\n\n"
+        f"{em(EMOJI_CROWN, '👑')} Owner: {OWNER_LINK}\n"
+        f"{em(EMOJI_STAR, '👤')} {OWNER_NAME}\n\n"
         f"<i>24/7 available!</i>",
         reply_markup=default_reply_keyboard(uid, d),
         parse_mode="HTML",
@@ -2194,7 +2176,7 @@ async def user_premium(cq: CallbackQuery, state: FSMContext):
         f"{em(EMOJI_GEAR, '⚡')} Fast speed\n"
         f"{em(EMOJI_MONEY, '💰')} Bonus credits\n"
         f"{em(EMOJI_CHECK, '✅')} Priority support\n\n"
-        f"{em(EMOJI_CROWN, '👑')} Contact: {SUPER_ADMIN_LINK}",
+        f"{em(EMOJI_CROWN, '👑')} Contact: {OWNER_LINK}",
         reply_markup=kb([("ʙᴀᴄᴋ", "user:home")]),
         parse_mode="HTML",
         disable_web_page_preview=True
@@ -2205,8 +2187,8 @@ async def user_premium(cq: CallbackQuery, state: FSMContext):
 async def user_support(cq: CallbackQuery, state: FSMContext):
     await cq.message.edit_text(
         f"{em(EMOJI_BELL, '🆘')} <b>sᴜᴘᴘᴏʀᴛ</b>\n\n"
-        f"{em(EMOJI_CROWN, '👑')} Owner: {SUPER_ADMIN_LINK}\n"
-        f"{em(EMOJI_STAR, '👤')} {SUPER_ADMIN_NAME}\n\n"
+        f"{em(EMOJI_CROWN, '👑')} Owner: {OWNER_LINK}\n"
+        f"{em(EMOJI_STAR, '👤')} {OWNER_NAME}\n\n"
         f"<i>Hum 24/7 available hain!</i>",
         reply_markup=kb([("ʙᴀᴄᴋ", "user:home")]),
         parse_mode="HTML",
@@ -2922,74 +2904,7 @@ async def owner_owners_menu(cq: CallbackQuery, state: FSMContext):
         await cq.answer("🚫 Owner Only!", show_alert=True)
         return
     await cq.message.edit_text(
-        f"{em(EMOJI_CROWN, '👑')} <b>ᴏᴡɴᴇʀs</b>\n\nTotal: <b>{len(d.get('owners', []))}/6</b>",
-        reply_markup=owners_menu_kb(d),
-        parse_mode="HTML"
-    )
-
-
-@R.callback_query(F.data == "owner:owners:add")
-async def owner_owners_add_start(cq: CallbackQuery, state: FSMContext):
-    d = load()
-    if not is_owner(cq.from_user.id, d):
-        await cq.answer("🚫 Owner Only!", show_alert=True)
-        return
-    if len(d.get("owners", [])) >= 6:
-        await cq.answer("❌ Max 6!", show_alert=True)
-        return
-    await state.set_state(S.add_owner)
-    await cq.message.edit_text(
-        f"{em(EMOJI_CROWN, '👑')} <b>ᴀᴅᴅ sᴜᴘᴇʀ ᴀᴅᴍɪɴ</b>\n\nChat ID bhejo:",
-        reply_markup=kb([("ᴄᴀɴᴄᴇʟ", "owner:owners:menu")]),
-        parse_mode="HTML"
-    )
-
-
-@R.message(S.add_owner)
-async def owner_owners_add_done(msg: Message, state: FSMContext):
-    d = load()
-    if not is_owner(msg.from_user.id, d):
-        await state.clear()
-        return
-    try:
-        new_id = int(msg.text.strip())
-    except:
-        await msg.answer(f"{em(EMOJI_CROSS, '❌')} Valid ID!", parse_mode="HTML")
-        return
-    if is_owner(new_id, d):
-        await state.clear()
-        await msg.answer(f"{em(EMOJI_WARNING, '⚠️')} Already!", reply_markup=owners_menu_kb(d), parse_mode="HTML")
-        return
-    if len(d.get("owners", [])) >= 6:
-        await state.clear()
-        await msg.answer(f"{em(EMOJI_CROSS, '❌')} Max 6!", reply_markup=owners_menu_kb(d), parse_mode="HTML")
-        return
-    d["owners"].append(new_id)
-    save(d)
-    await state.clear()
-    await msg.answer(f"{em(EMOJI_CHECK, '✅')} <b>Super Admin Added!</b>\n<code>{new_id}</code>", reply_markup=owners_menu_kb(load()), parse_mode="HTML")
-    try:
-        await msg.bot.send_message(new_id, f"{em(EMOJI_CROWN, '🔱')} <b>Aapko Super Admin bana diya!</b>", parse_mode="HTML")
-    except: pass
-
-
-@R.callback_query(F.data.startswith("owner:owners:del:"))
-async def owner_owners_del(cq: CallbackQuery, state: FSMContext):
-    d = load()
-    uid = cq.from_user.id
-    del_id = int(cq.data.split("owner:owners:del:", 1)[1])
-    if not is_owner(uid, d):
-        await cq.answer("🚫 Owner Only!", show_alert=True)
-        return
-    if del_id == MAIN_OWNER or del_id in SUPER_ADMINS:
-        await cq.answer("❌ Main owner remove nahi ho sakta!", show_alert=True)
-        return
-    if del_id in d["owners"]:
-        d["owners"].remove(del_id)
-        save(d)
-        await cq.answer("🗑 Removed!")
-    await cq.message.edit_text(
-        f"{em(EMOJI_CROWN, '👑')} <b>ᴏᴡɴᴇʀs</b>\n\nTotal: <b>{len(d['owners'])}/6</b>",
+        f"{em(EMOJI_CROWN, '👑')} <b>ᴏᴡɴᴇʀ</b>\n\nID: <code>{MAIN_OWNER}</code>",
         reply_markup=owners_menu_kb(d),
         parse_mode="HTML"
     )
@@ -3002,64 +2917,7 @@ async def owner_admins_menu(cq: CallbackQuery, state: FSMContext):
         await cq.answer("🚫 Owner Only!", show_alert=True)
         return
     await cq.message.edit_text(
-        f"{em(EMOJI_SHIELD, '🛡')} <b>ᴀᴅᴍɪɴs</b>\n\nTotal: <b>{len(d.get('admins', []))}</b>",
-        reply_markup=admins_menu_kb(d),
-        parse_mode="HTML"
-    )
-
-
-@R.callback_query(F.data == "owner:admins:add")
-async def owner_admins_add_start(cq: CallbackQuery, state: FSMContext):
-    d = load()
-    if not is_owner(cq.from_user.id, d):
-        await cq.answer("🚫 Owner Only!", show_alert=True)
-        return
-    await state.set_state(S.add_admin)
-    await cq.message.edit_text(
-        f"{em(EMOJI_SHIELD, '🛡')} <b>ᴀᴅᴅ ᴀᴅᴍɪɴ</b>\n\nUser ID bhejo:",
-        reply_markup=kb([("ᴄᴀɴᴄᴇʟ", "owner:admins:menu")]),
-        parse_mode="HTML"
-    )
-
-
-@R.message(S.add_admin)
-async def owner_admins_add_done(msg: Message, state: FSMContext):
-    d = load()
-    if not is_owner(msg.from_user.id, d):
-        await state.clear()
-        return
-    try:
-        new_id = int(msg.text.strip())
-    except:
-        await msg.answer(f"{em(EMOJI_CROSS, '❌')} Valid ID!", parse_mode="HTML")
-        return
-    if new_id in d.get("admins", []) or is_owner(new_id, d):
-        await state.clear()
-        await msg.answer(f"{em(EMOJI_WARNING, '⚠️')} Already!", reply_markup=admins_menu_kb(d), parse_mode="HTML")
-        return
-    d["admins"].append(new_id)
-    save(d)
-    await state.clear()
-    await msg.answer(f"{em(EMOJI_CHECK, '✅')} <b>Admin Added!</b>\n<code>{new_id}</code>", reply_markup=admins_menu_kb(load()), parse_mode="HTML")
-    try:
-        await msg.bot.send_message(new_id, f"{em(EMOJI_SHIELD, '🛡')} <b>Aapko Admin bana diya!</b>", parse_mode="HTML")
-    except: pass
-
-
-@R.callback_query(F.data.startswith("owner:admins:del:"))
-async def owner_admins_del(cq: CallbackQuery, state: FSMContext):
-    d = load()
-    uid = cq.from_user.id
-    del_id = int(cq.data.split("owner:admins:del:", 1)[1])
-    if not is_owner(uid, d):
-        await cq.answer("🚫 Owner Only!", show_alert=True)
-        return
-    if del_id in d.get("admins", []):
-        d["admins"].remove(del_id)
-        save(d)
-        await cq.answer("🗑 Removed!")
-    await cq.message.edit_text(
-        f"{em(EMOJI_SHIELD, '🛡')} <b>ᴀᴅᴍɪɴs</b>\n\nTotal: <b>{len(d['admins'])}</b>",
+        f"{em(EMOJI_SHIELD, '🛡')} <b>ᴀᴅᴍɪɴs</b>\n\nNo admins configured.",
         reply_markup=admins_menu_kb(d),
         parse_mode="HTML"
     )
@@ -4168,7 +4026,7 @@ async def user_pricing(cq: CallbackQuery, state: FSMContext):
 async def user_info(cq: CallbackQuery, state: FSMContext):
     await cq.message.edit_text(
         f"{em(EMOJI_GEAR, 'ℹ️')} <b>SMS Blast Bot {_VERSION}</b>\n\n"
-        f"{em(EMOJI_CROWN, '👤')} Developer: <a href='{SUPER_ADMIN_LINK}'>{SUPER_ADMIN_NAME}</a>\n"
+        f"{em(EMOJI_CROWN, '👤')} Developer: <a href='{OWNER_LINK}'>{OWNER_NAME}</a>\n"
         f"{em(EMOJI_BELL, '💬')} Support: Contact owner\n\n"
         f"<i>Referral se free credits paayein!</i>",
         reply_markup=kb([("ʙᴀᴄᴋ", "user:home")]),
@@ -4211,7 +4069,7 @@ async def main():
             f"{em(EMOJI_LOCK, '🔒')} <b>Number Protection:</b> ENABLED\n"
             f"{em(EMOJI_VIDEO, '📹')} <b>Videos/Images:</b> ENABLED\n"
             f"{em(EMOJI_MONEY, '💸')} <b>Credit Transfer:</b> ENABLED\n"
-            f"👤 <b>Bot Owner:</b> {SUPER_ADMIN_NAME}",
+            f"👤 <b>Bot Owner:</b> {OWNER_NAME}",
             parse_mode="HTML"
         )
     except Exception as e:
