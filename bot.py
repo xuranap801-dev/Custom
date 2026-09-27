@@ -193,7 +193,7 @@ OWNER_LINK = os.getenv("OWNER_LINK", "")
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "Erenxsmsbot")
 # Log channel is configured privately from Owner Panel settings.
-_DATA_DIR = os.getenv("DATA_DIR", ".")
+_DATA_DIR = os.getenv("DATA_DIR") or os.getenv("RAILWAY_VOLUME_MOUNT_PATH") or "."
 os.makedirs(_DATA_DIR, exist_ok=True)
 _DATA_FILE = os.path.join(_DATA_DIR, "blast_data.json")
 _DB_FILE = os.path.join(_DATA_DIR, "blast_data.sqlite3")
@@ -4056,17 +4056,21 @@ WEBHOOK_PATH = "/telegram/webhook"
 
 
 async def health_check(request: web.Request) -> web.Response:
-    """Public health endpoint for Render; does not expose bot state."""
+    """Public health endpoint; does not expose bot state."""
     return web.Response(text="ok", status=200)
 
 
 def _validate_webhook_config() -> tuple[str, str, int]:
     base_url = os.getenv("RENDER_EXTERNAL_URL", "").strip().rstrip("/")
+    if not base_url:
+        base_url = os.getenv("RAILWAY_PUBLIC_DOMAIN", "").strip().rstrip("/")
+    if base_url and not base_url.startswith(("http://", "https://")):
+        base_url = f"https://{base_url}"
     secret = os.getenv("WEBHOOK_SECRET", "").strip()
     if not BOT_TOKEN:
         raise RuntimeError("BOT_TOKEN environment variable is required.")
     if not base_url.startswith("https://"):
-        raise RuntimeError("RENDER_EXTERNAL_URL must be set to this Render Web Service HTTPS URL.")
+        raise RuntimeError("Set RENDER_EXTERNAL_URL or RAILWAY_PUBLIC_DOMAIN to the public HTTPS service URL.")
     if not secret or len(secret) > 256 or any(c not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-" for c in secret):
         raise RuntimeError("Set WEBHOOK_SECRET to a random 1-256 character value using only letters, digits, _ or -.")
     return base_url, secret, _env_int("PORT", 10000)
